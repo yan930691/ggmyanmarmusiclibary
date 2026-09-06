@@ -99,6 +99,7 @@ async def is_subscribed(client, user_id):
             return True
     except Exception as e:
         logger.warning(f"⚠️ User ({user_id}) Channel Join စစ်ဆေးစဉ် Error: {e}")
+        # Error ဖြစ်ရင် False ပြန်မယ် (ဒါပေမယ့် အောက်က start_handler မှာ ထပ်ပြီး try-except နဲ့ ကိုင်တွယ်ထားတယ်)
         return False
     return False
 
@@ -144,7 +145,14 @@ async def start_handler(client, message):
     try:
         user_id = message.from_user.id
         
-        if not await is_subscribed(client, user_id):
+        # ========== Channel Join စစ်ဆေးခြင်း (ပိုပြီး robust) ==========
+        try:
+            is_member = await is_subscribed(client, user_id)
+        except Exception as e:
+            logger.error(f"❌ is_subscribed ကိုယ်တိုင် Error: {e}")
+            is_member = False  # Error ဖြစ်ရင် မဝင်သေးသလို့ သတ်မှတ်ပြီး Join ခိုင်းမယ်
+        
+        if not is_member:
             try:
                 chat = await client.get_chat(CHANNEL_ID)
                 channel_url = chat.invite_link or f"https://t.me/{chat.username}"
@@ -156,15 +164,20 @@ async def start_handler(client, message):
                 [InlineKeyboardButton("📢 Join Channel First", url=channel_url)],
                 [InlineKeyboardButton("🔄 Try Again", callback_data="check_join")]
             ])
-            return await message.reply_text(
-                "⚠️ <b>Bot ကို အသုံးပြုနိုင်ရန် ကျေးဇူးပြု၍ ကျွန်ုပ်တို့၏ Channel ကို မဖြစ်မနေ Join ပေးပါရန်။</b>",
-                reply_markup=join_buttons
-            )
+            # ဒီနေရာမှာ reply_text ကို try-except ထပ်ထည့်တယ်
+            try:
+                await message.reply_text(
+                    "⚠️ <b>Bot ကို အသုံးပြုနိုင်ရန် ကျေးဇူးပြု၍ ကျွန်ုပ်တို့၏ Channel ကို မဖြစ်မနေ Join ပေးပါရန်။</b>",
+                    reply_markup=join_buttons
+                )
+            except Exception as reply_err:
+                logger.error(f"❌ Join ခိုင်းတဲ့စာ ပို့လို့မရဘူး: {reply_err}")
+            return
 
+        # ========== ပုံမှန် Welcome Message ==========
         text = "<b>မြန်မာသီချင်းများကို အလွယ်တကူ ရှာဖွေ နားဆင်နိုင်ပါသည်။</b> 🎵🎧"
         banner_url = "https://telegra.ph/file/0b263b6526cbdf61b0c03.jpg"
         
-        # ========== FIX: Photo မရရင် Text နဲ့ Fallback ==========
         try:
             await message.reply_photo(
                 photo=banner_url, 
@@ -173,18 +186,30 @@ async def start_handler(client, message):
             )
         except Exception as photo_error:
             logger.warning(f"⚠️ Photo ပို့လို့မရဘူး၊ Text နဲ့ အစားထိုးလိုက်တယ်: {photo_error}")
-            await message.reply_text(
-                text, 
-                reply_markup=get_home_keyboard()
-            )
-        # ======================================================
+            try:
+                await message.reply_text(
+                    text, 
+                    reply_markup=get_home_keyboard()
+                )
+            except Exception as text_error:
+                logger.error(f"❌ Fallback Text ပို့လို့မရဘူး: {text_error}")
+                # နောက်ဆုံးအနေနဲ့ ရိုးရိုးစာသားလေးတစ်ခု ထပ်ကြိုးစားမယ်
+                try:
+                    await message.reply_text("🎵 မြန်မာသီချင်းများ ရှာဖွေရန် ကြိုဆိုပါတယ်။")
+                except:
+                    pass  # ဒီမှာတောင် မရရင် ဘာမှမလုပ်တော့ဘူး
         
     except Exception as e:
         logger.error(f"❌ START COMMAND ERROR:\n{traceback.format_exc()}")
-        # ဘယ်လိုမှ မရရင်တောင် ဒီအောက်က စာတစ်ခုခုတော့ ပြန်ပို့ပေးပါ
-        await message.reply_text("❌ နည်းပညာအချို့အရ ဝန်ဆောင်မှု ယာယီရပ်နားထားပါသည်။ နောက်မှ ပြန်ကြိုးစားပါ။")
+        # နောက်ဆုံး ကယ်ဆယ်ရေး ကြိုးစားချက်
+        try:
+            await message.reply_text("❌ နည်းပညာအချို့အရ ဝန်ဆောင်မှု ယာယီရပ်နားထားပါသည်။ နောက်မှ ပြန်ကြိုးစားပါ။")
+        except:
+            pass
 
 # ==================== ADMIN COMMANDS ====================
+# (ဒီအောက်က Admin Commands နဲ့ Callback Handlers တွေက မူရင်းအတိုင်းပါ၊ နေရာလွတ်အတွက် ထပ်မထည့်တော့ဘူး)
+# ဒါပေမယ့် ခင်ဗျား ကုဒ်ထဲမှာ အောက်ပါအတိုင်း ဆက်ထည့်ထားဖို့ လိုတယ်။
 
 @app.on_message(filters.command("admin") & filters.user(ADMIN_ID) & filters.private)
 async def admin_panel(client, message):
@@ -253,8 +278,6 @@ async def add_song(client, message):
     except Exception as e:
         logger.error(f"❌ ADD SONG ERROR:\n{traceback.format_exc()}")
         await message.reply_text("❌ စာရိုက်ပုံစံ မှားယွင်းနေပါသည်။\nAudio File ပို့ပြီး Caption တွင် <code>/addsong Album_ID | သီချင်းအမည် | အဆိုတော်</code> ဟု ရိုက်ပေးပါ။")
-
-# ==================== CALLBACK HANDLERS ====================
 
 @app.on_callback_query()
 async def callback_handler(client, callback_query: CallbackQuery):
