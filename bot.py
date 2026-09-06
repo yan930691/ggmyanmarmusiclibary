@@ -99,7 +99,6 @@ async def is_subscribed(client, user_id):
             return True
     except Exception as e:
         logger.warning(f"⚠️ User ({user_id}) Channel Join စစ်ဆေးစဉ် Error: {e}")
-        # Error ဖြစ်ရင် False ပြန်မယ် (ဒါပေမယ့် အောက်က start_handler မှာ ထပ်ပြီး try-except နဲ့ ကိုင်တွယ်ထားတယ်)
         return False
     return False
 
@@ -138,21 +137,29 @@ def get_albums_keyboard(page: int = 1):
         logger.error(f"❌ ALBUM KEYBOARD ERROR:\n{traceback.format_exc()}")
         return InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Back to Home", callback_data="menu_home")]])
 
+# ==================== TEST COMMAND (Debugging) ====================
+@app.on_message(filters.command("test") & filters.private)
+async def test_handler(client, message):
+    logger.info(f"🧪 /test command received from user {message.from_user.id}")
+    try:
+        await message.reply_text("✅ Test Command အလုပ်လုပ်ပါတယ်။ ခင်ဗျားရဲ့ Bot က Message တွေကို လက်ခံနေပါပြီ။")
+    except Exception as e:
+        logger.error(f"❌ Test command ကျရှုံးသွားတယ်: {e}")
+
 # ==================== USER HANDLERS ====================
 
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
     try:
         user_id = message.from_user.id
-        
-        # ========== Channel Join စစ်ဆေးခြင်း (ပိုပြီး robust) ==========
-        try:
-            is_member = await is_subscribed(client, user_id)
-        except Exception as e:
-            logger.error(f"❌ is_subscribed ကိုယ်တိုင် Error: {e}")
-            is_member = False  # Error ဖြစ်ရင် မဝင်သေးသလို့ သတ်မှတ်ပြီး Join ခိုင်းမယ်
-        
-        if not is_member:
+        logger.info(f"📩 /start command received from user {user_id}")  # ဒီစာ Log ထဲ ပေါ်ရင် Message လက်ခံရပြီး
+
+        # ========== TEMPORARILY DISABLED CHANNEL CHECK FOR DEBUGGING ==========
+        # ဒီအောက်က Channel Join စစ်ဆေးတဲ့ အပိုင်းကို ယာယီပိတ်ထားတယ်။
+        # ဘာကြောင့်လဲဆိုတော့ ဒီအပိုင်းက Error တက်ပြီး စာမပြန်တာ ဖြစ်နိုင်လို့ပါ။
+        # Bot အလုပ်လုပ်ပြီဆိုရင် ပြန်ဖွင့်ပေးပါ။
+        """
+        if not await is_subscribed(client, user_id):
             try:
                 chat = await client.get_chat(CHANNEL_ID)
                 channel_url = chat.invite_link or f"https://t.me/{chat.username}"
@@ -164,15 +171,13 @@ async def start_handler(client, message):
                 [InlineKeyboardButton("📢 Join Channel First", url=channel_url)],
                 [InlineKeyboardButton("🔄 Try Again", callback_data="check_join")]
             ])
-            # ဒီနေရာမှာ reply_text ကို try-except ထပ်ထည့်တယ်
-            try:
-                await message.reply_text(
-                    "⚠️ <b>Bot ကို အသုံးပြုနိုင်ရန် ကျေးဇူးပြု၍ ကျွန်ုပ်တို့၏ Channel ကို မဖြစ်မနေ Join ပေးပါရန်။</b>",
-                    reply_markup=join_buttons
-                )
-            except Exception as reply_err:
-                logger.error(f"❌ Join ခိုင်းတဲ့စာ ပို့လို့မရဘူး: {reply_err}")
+            await message.reply_text(
+                "⚠️ <b>Bot ကို အသုံးပြုနိုင်ရန် ကျေးဇူးပြု၍ ကျွန်ုပ်တို့၏ Channel ကို မဖြစ်မနေ Join ပေးပါရန်။</b>",
+                reply_markup=join_buttons
+            )
             return
+        """
+        # ======================================================================
 
         # ========== ပုံမှန် Welcome Message ==========
         text = "<b>မြန်မာသီချင်းများကို အလွယ်တကူ ရှာဖွေ နားဆင်နိုင်ပါသည်။</b> 🎵🎧"
@@ -184,32 +189,31 @@ async def start_handler(client, message):
                 caption=text, 
                 reply_markup=get_home_keyboard()
             )
+            logger.info(f"✅ Welcome photo sent to user {user_id}")
         except Exception as photo_error:
-            logger.warning(f"⚠️ Photo ပို့လို့မရဘူး၊ Text နဲ့ အစားထိုးလိုက်တယ်: {photo_error}")
+            logger.warning(f"⚠️ Photo ပို့လို့မရဘူး (User: {user_id}), Text နဲ့ အစားထိုးလိုက်တယ်: {photo_error}")
             try:
                 await message.reply_text(
                     text, 
                     reply_markup=get_home_keyboard()
                 )
+                logger.info(f"✅ Fallback text sent to user {user_id}")
             except Exception as text_error:
-                logger.error(f"❌ Fallback Text ပို့လို့မရဘူး: {text_error}")
-                # နောက်ဆုံးအနေနဲ့ ရိုးရိုးစာသားလေးတစ်ခု ထပ်ကြိုးစားမယ်
+                logger.error(f"❌ Fallback Text ပို့လို့မရဘူး (User: {user_id}): {text_error}")
+                # နောက်ဆုံးအနေနဲ့ ရိုးရိုးစာသားလေး
                 try:
                     await message.reply_text("🎵 မြန်မာသီချင်းများ ရှာဖွေရန် ကြိုဆိုပါတယ်။")
                 except:
-                    pass  # ဒီမှာတောင် မရရင် ဘာမှမလုပ်တော့ဘူး
+                    logger.critical(f"💥 User {user_id} ကို ဘယ်လိုမှ စာမပို့နိုင်ဘူး")
         
     except Exception as e:
-        logger.error(f"❌ START COMMAND ERROR:\n{traceback.format_exc()}")
-        # နောက်ဆုံး ကယ်ဆယ်ရေး ကြိုးစားချက်
+        logger.error(f"❌ START COMMAND FATAL ERROR:\n{traceback.format_exc()}")
         try:
             await message.reply_text("❌ နည်းပညာအချို့အရ ဝန်ဆောင်မှု ယာယီရပ်နားထားပါသည်။ နောက်မှ ပြန်ကြိုးစားပါ။")
         except:
             pass
 
 # ==================== ADMIN COMMANDS ====================
-# (ဒီအောက်က Admin Commands နဲ့ Callback Handlers တွေက မူရင်းအတိုင်းပါ၊ နေရာလွတ်အတွက် ထပ်မထည့်တော့ဘူး)
-# ဒါပေမယ့် ခင်ဗျား ကုဒ်ထဲမှာ အောက်ပါအတိုင်း ဆက်ထည့်ထားဖို့ လိုတယ်။
 
 @app.on_message(filters.command("admin") & filters.user(ADMIN_ID) & filters.private)
 async def admin_panel(client, message):
@@ -278,6 +282,8 @@ async def add_song(client, message):
     except Exception as e:
         logger.error(f"❌ ADD SONG ERROR:\n{traceback.format_exc()}")
         await message.reply_text("❌ စာရိုက်ပုံစံ မှားယွင်းနေပါသည်။\nAudio File ပို့ပြီး Caption တွင် <code>/addsong Album_ID | သီချင်းအမည် | အဆိုတော်</code> ဟု ရိုက်ပေးပါ။")
+
+# ==================== CALLBACK HANDLERS ====================
 
 @app.on_callback_query()
 async def callback_handler(client, callback_query: CallbackQuery):
