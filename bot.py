@@ -77,7 +77,6 @@ app = Client("MyanmarMusicBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_
 PAGE_SIZE = 5
 
 # ==================== RENDER FREE PLAN DUMMY WEB SERVER ====================
-# Render Free Plan တွင် Deploy In-Progress ဖြစ်မနေဘဲ Live တန်းဖြစ်စေရန် Port ခေါ်ပေးခြင်း
 async def handle_ping(request):
     return web.Response(text="Bot is Alive & Running!")
 
@@ -164,13 +163,26 @@ async def start_handler(client, message):
 
         text = "<b>မြန်မာသီချင်းများကို အလွယ်တကူ ရှာဖွေ နားဆင်နိုင်ပါသည်။</b> 🎵🎧"
         banner_url = "https://telegra.ph/file/0b263b6526cbdf61b0c03.jpg"
-        await message.reply_photo(
-            photo=banner_url,
-            caption=text,
-            reply_markup=get_home_keyboard()
-        )
+        
+        # ========== FIX: Photo မရရင် Text နဲ့ Fallback ==========
+        try:
+            await message.reply_photo(
+                photo=banner_url, 
+                caption=text, 
+                reply_markup=get_home_keyboard()
+            )
+        except Exception as photo_error:
+            logger.warning(f"⚠️ Photo ပို့လို့မရဘူး၊ Text နဲ့ အစားထိုးလိုက်တယ်: {photo_error}")
+            await message.reply_text(
+                text, 
+                reply_markup=get_home_keyboard()
+            )
+        # ======================================================
+        
     except Exception as e:
         logger.error(f"❌ START COMMAND ERROR:\n{traceback.format_exc()}")
+        # ဘယ်လိုမှ မရရင်တောင် ဒီအောက်က စာတစ်ခုခုတော့ ပြန်ပို့ပေးပါ
+        await message.reply_text("❌ နည်းပညာအချို့အရ ဝန်ဆောင်မှု ယာယီရပ်နားထားပါသည်။ နောက်မှ ပြန်ကြိုးစားပါ။")
 
 # ==================== ADMIN COMMANDS ====================
 
