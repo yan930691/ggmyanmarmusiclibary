@@ -3,14 +3,15 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pymongo import MongoClient
 
-# ==================== CONFIGURATION ====================
+# ==================== CONFIGURATION (ENVIRONMENT VARIABLES) ====================
 API_ID = int(os.environ.get("API_ID", "1234567"))
 API_HASH = os.environ.get("API_HASH", "your_api_hash")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "your_bot_token")
 MONGO_URL = os.environ.get("MONGO_URL", "your_mongodb_url")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789")) # Admin ID
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1001234567890")) # Thag Channel ID (-100...)
 
-# Database Connection
+# MongoDB Connection
 mongo_client = MongoClient(MONGO_URL)
 db = mongo_client["music_bot_db"]
 albums_col = db["albums"]
@@ -20,8 +21,19 @@ app = Client("MyanmarMusicBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_
 
 PAGE_SIZE = 5
 
-# ==================== HELPER KEYBOARDS ====================
+# ==================== HELPER FUNCTIONS ====================
 
+# User က Channel ကို Join ထားခြင်း ရှိ/မရှိ စစ်ဆေးခြင်း
+async def is_subscribed(client, user_id):
+    try:
+        member = await client.get_chat_member(CHANNEL_ID, user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            return True
+    except Exception:
+        return False
+    return False
+
+# 1. HOME KEYBOARD
 def get_home_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📚 Albums", callback_data="page_albums_1")],
@@ -32,6 +44,7 @@ def get_home_keyboard():
         [InlineKeyboardButton("ℹ️ About / Help", callback_data="menu_help")]
     ])
 
+# 2. ALBUMS KEYBOARD WITH PAGINATION
 def get_albums_keyboard(page: int = 1):
     total_albums = albums_col.count_documents({})
     total_pages = max(1, (total_albums + PAGE_SIZE - 1) // PAGE_SIZE)
@@ -57,6 +70,25 @@ def get_albums_keyboard(page: int = 1):
 
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
+    user_id = message.from_user.id
+    
+    # Channel Join မထားပါက Force Join Message ပြပါမည်
+    if not await is_subscribed(client, user_id):
+        try:
+            chat = await client.get_chat(CHANNEL_ID)
+            channel_url = chat.invite_link or f"https://t.me/{chat.username}"
+        except Exception:
+            channel_url = "https://t.me/"
+
+        join_buttons = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Join Channel First", url=channel_url)],
+            [InlineKeyboardButton("🔄 Try Again", callback_data="check_join")]
+        ])
+        return await message.reply_text(
+            "⚠️ <b>Bot ကို အသုံးပြုနိုင်ရန် ကျေးဇူးပြု၍ ကျွန်ုပ်တို့၏ Channel ကို မဖြစ်မနေ Join ပေးပါရန်။</b>",
+            reply_markup=join_buttons
+        )
+
     text = "<b>မြန်မာသီချင်းများကို အလွယ်တကူ ရှာဖွေ နားဆင်နိုင်ပါသည်။</b> 🎵🎧"
     banner_url = "https://telegra.ph/file/0b263b6526cbdf61b0c03.jpg"
     await message.reply_photo(
@@ -72,43 +104,47 @@ async def start_handler(client, message):
 async def admin_panel(client, message):
     text = (
         "<b>🛠 ADMIN PANEL</b>\n\n"
-        "သီချင်း/Album များ ထည့်သွင်းရန် အောက်ပါ Command များကို သုံးပါ -\n\n"
-        "၁။ Album သစ်ထည့်ရန်:\n"
-        "<code>/addalbum Albumအမည် | အဆိုတော် | CoverPhoto_URL</code>\n"
-        "<i>ဥပမာ: /addalbum ကုသိုလ် | မနော | https://...jpg</i>\n\n"
-        "၂။ သီချင်းထည့်ရန် (Audio File အား တွဲ၍ Command စာရိုက်ပါ):\n"
-        "<code>/addsong Album_ID | သီချင်းအမည် | အဆိုတော်</code>\n"
-        "<i>ဥပမာ: /addsong 1 | ရုက္ခစိုး | မနော</i>"
+        "၁။ <b>Album သစ်ထည့်ရန်:</b>\n"
+        "Album Cover ပုံကို ပို့ပြီး Caption တွင် ရိုက်ပါ -\n"
+        "<code>/addalbum Albumအမည် | အဆိုတော်</code>\n\n"
+        "၂။ <b>သီချင်းထည့်ရန်:</b>\n"
+        "Audio File ကို ပို့ပြီး Caption တွင် ရိုက်ပါ -\n"
+        "<code>/addsong Album_ID | သီချင်းအမည် | အဆိုတော်</code>"
     )
     await message.reply_text(text)
 
-# Album အသစ်ထည့်ရန် Command
-@app.on_message(filters.command("addalbum") & filters.user(ADMIN_ID) & filters.private)
-async def add_album(client, message):
+# Photo ဖြင့် Album အသစ်ထည့်ခြင်း
+@app.on_message(filters.command("addalbum") & filters.user(ADMIN_ID) & filters.private & filters.photo)
+async def add_album_by_photo(client, message):
     try:
-        data = message.text.split(" ", 1)[1].split("|")
+        data = message.caption.split(" ", 1)[1].split("|")
         title = data[0].strip()
-        artist = data[1].strip()
-        cover = data[2].strip() if len(data) > 2 else "https://telegra.ph/file/0b263b6526cbdf61b0c03.jpg"
+        artist = data[1].strip() if len(data) > 1 else "Unknown"
+        cover_file_id = message.photo.file_id
 
         album_id = albums_col.count_documents({}) + 1
         albums_col.insert_one({
             "_id": album_id,
             "title": title,
             "artist": artist,
-            "cover": cover,
+            "cover": cover_file_id,
             "songs_count": 0
         })
 
-        await message.reply_text(f"✅ Album အသစ် ထည့်သွင်းအောင်မြင်သည်!\n<b>Album ID:</b> {album_id}\n<b>Title:</b> {title}")
-    except Exception as e:
-        await message.reply_text("❌ စာရိုက်ပုံစံ မှားယွင်းနေပါသည်။\n<code>/addalbum Albumအမည် | အဆိုတော် | CoverURL</code> ဟု ရိုက်ပါ")
+        await message.reply_text(
+            f"✅ <b>Album အသစ် ဖန်တီးပြီးပါပြီ!</b>\n\n"
+            f"🆔 <b>Album ID:</b> <code>{album_id}</code>\n"
+            f"💿 <b>Title:</b> {title}\n"
+            f"🎤 <b>Artist:</b> {artist}"
+        )
+    except Exception:
+        await message.reply_text("❌ စာရိုက်ပုံစံ မှားယွင်းနေပါသည်။\nPhoto ပို့ပြီး Caption တွင် <code>/addalbum Albumအမည် | အဆိုတော်</code> ဟု ရိုက်ပေးပါ။")
 
-# Audio File ဖြင့် သီချင်းထည့်ရန် Command
+# Audio ဖြင့် သီချင်းထည့်ခြင်း
 @app.on_message(filters.command("addsong") & filters.user(ADMIN_ID) & filters.private & filters.audio)
 async def add_song(client, message):
     try:
-        data = message.text.split(" ", 1)[1].split("|")
+        data = message.caption.split(" ", 1)[1].split("|")
         album_id = int(data[0].strip())
         song_title = data[1].strip()
         artist = data[2].strip() if len(data) > 2 else "Unknown"
@@ -116,7 +152,6 @@ async def add_song(client, message):
         file_id = message.audio.file_id
         duration = message.audio.duration
 
-        # Save Song to Database
         songs_col.insert_one({
             "album_id": album_id,
             "title": song_title,
@@ -125,18 +160,35 @@ async def add_song(client, message):
             "duration": duration
         })
 
-        # Update Song Count in Album
         albums_col.update_one({"_id": album_id}, {"$inc": {"songs_count": 1}})
-
         await message.reply_text(f"✅ <b>{song_title}</b> သီချင်းအား Album ID ({album_id}) ထဲသို့ ထည့်သွင်းပြီးပါပြီ!")
-    except Exception as e:
-        await message.reply_text("❌ စာရိုက်ပုံစံ မှားယွင်းနေပါသည်။\nAudio File ကို တွဲလျက် <code>/addsong Album_ID | သီချင်းအမည် | အဆိုတော်</code> ဟု ရိုက်ပါ")
+    except Exception:
+        await message.reply_text("❌ စာရိုက်ပုံစံ မှားယွင်းနေပါသည်။\nAudio File ပို့ပြီး Caption တွင် <code>/addsong Album_ID | သီချင်းအမည် | အဆိုတော်</code> ဟု ရိုက်ပေးပါ။")
 
-# Callback Handlers
+# ==================== CALLBACK HANDLERS ====================
+
 @app.on_callback_query()
 async def callback_handler(client, callback_query: CallbackQuery):
     data = callback_query.data
-    
+    user_id = callback_query.from_user.id
+
+    # Check Join Button ပြန်နှိပ်သည့်အခါ
+    if data == "check_join":
+        if await is_subscribed(client, user_id):
+            await callback_query.message.delete()
+            text = "<b>မြန်မာသီချင်းများကို အလွယ်တကူ ရှာဖွေ နားဆင်နိုင်ပါသည်။</b> 🎵🎧"
+            banner_url = "https://telegra.ph/file/0b263b6526cbdf61b0c03.jpg"
+            await client.send_photo(
+                chat_id=user_id,
+                photo=banner_url,
+                caption=text,
+                reply_markup=get_home_keyboard()
+            )
+        else:
+            await callback_query.answer("⚠️ Channel ကို Join မထားသေးပါ။ Join ပီးမှ နှိပ်ပါ!", show_alert=True)
+        return
+
+    # Home သို့ ပြန်သွားရန်
     if data == "menu_home":
         text = "<b>မြန်မာသီချင်းများကို အလွယ်တကူ ရှာဖွေ နားဆင်နိုင်ပါသည်။</b> 🎵🎧"
         await callback_query.message.edit_caption(
@@ -145,6 +197,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
         )
         await callback_query.answer()
 
+    # Album စာရင်းများ ကြည့်ရန်
     elif data.startswith("page_albums_"):
         page = int(data.split("_")[2])
         text = "📚 <b>ALBUM COLLECTION</b>\nအယ်လ်ဘမ် ရွေးချယ်ပါ"
@@ -158,5 +211,5 @@ async def callback_handler(client, callback_query: CallbackQuery):
         await callback_query.answer()
 
 if __name__ == "__main__":
-    print("Bot starting...")
+    print("Bot starting successfully...")
     app.run()
