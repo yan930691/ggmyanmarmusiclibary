@@ -3,9 +3,9 @@ import sys
 import logging
 import traceback
 import asyncio
+from aiohttp import web
 
 # ==================== PYTHON 3.12+ ASYNCIO FIX ====================
-# Pyrogram Python 3.12, 3.13, 3.14 တွင် event loop ရှာမရသည့် error ကို ဖြေရှင်းပေးမည့် code
 try:
     asyncio.get_event_loop()
 except RuntimeError:
@@ -75,6 +75,21 @@ except Exception as e:
 app = Client("MyanmarMusicBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 PAGE_SIZE = 5
+
+# ==================== RENDER FREE PLAN DUMMY WEB SERVER ====================
+# Render Free Plan တွင် Deploy In-Progress ဖြစ်မနေဘဲ Live တန်းဖြစ်စေရန် Port ခေါ်ပေးခြင်း
+async def handle_ping(request):
+    return web.Response(text="Bot is Alive & Running!")
+
+async def start_web_server():
+    server = web.Application()
+    server.router.add_get("/", handle_ping)
+    runner = web.AppRunner(server)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"🌐 Dummy Web Server started on port {port} for Render Free Plan")
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -274,11 +289,16 @@ async def callback_handler(client, callback_query: CallbackQuery):
         logger.error(f"❌ CALLBACK ERROR:\n{traceback.format_exc()}")
         await callback_query.answer("⚠️ Error တစ်ခု ဖြစ်ပေါ်သွားပါသည်!", show_alert=True)
 
-# ==================== BOT MAIN RUN ====================
+# ==================== MAIN EXECUTION ====================
+
+async def main():
+    await start_web_server()
+    await app.start()
+    logger.info("🎉 Bot ကို Free Plan ပေါ်တွင် အောင်မြင်စွာ တင်ဆက်လိုက်ပါပြီ (Running...)...")
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
     try:
-        logger.info("🎉 Bot ကို အောင်မြင်စွာ တင်ဆက်လိုက်ပါပြီ (Running...)...")
-        app.run()
+        asyncio.run(main())
     except Exception as e:
         logger.critical(f"💥 CRITICAL BOT RUNTIME ERROR:\n{traceback.format_exc()}")
