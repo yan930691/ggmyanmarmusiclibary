@@ -7,7 +7,6 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQ
 from pymongo import MongoClient
 
 # ==================== DETAILED ERROR LOGGING SYSTEM ====================
-# Render Log တွင် မည်သည့်နေရာ၌ Error တက်သည်ကို အသေးစိတ် ပြသပေးမည့် စနစ်
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - [%(levelname)s] - %(message)s"
@@ -25,7 +24,6 @@ try:
     ADMIN_ID_RAW = os.environ.get("ADMIN_ID", "").strip()
     CHANNEL_ID_RAW = os.environ.get("CHANNEL_ID", "").strip()
 
-    # Environment Variables မပြည့်စုံပါက မည်သည့် Key လိုအပ်နေကြောင်း တိကျစွာ ပြသမည်
     missing_vars = []
     if not API_ID_RAW: missing_vars.append("API_ID")
     if not API_HASH: missing_vars.append("API_HASH")
@@ -35,7 +33,7 @@ try:
     if not CHANNEL_ID_RAW: missing_vars.append("CHANNEL_ID")
 
     if missing_vars:
-        logger.error(f"❌ ERROR: အောက်ပါ Environment Variable(s) များ Render တွင် မပြည့်စုံသေးပါ -> {', '.join(missing_vars)}")
+        logger.error(f"❌ ERROR: Render Environment Variables တွင် မပြည့်စုံသေးပါ -> {', '.join(missing_vars)}")
         sys.exit(1)
 
     API_ID = int(API_ID_RAW)
